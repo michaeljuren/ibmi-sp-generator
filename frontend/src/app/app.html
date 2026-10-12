@@ -1,0 +1,108 @@
+<main>
+  <h1>IBM i Stored Procedure Generator</h1>
+  <p class="hint">
+    Paste a SELECT query and list the files it uses. Column types are read from
+    <code>QSYS2.SYSCOLUMNS</code>; the query is never executed.
+  </p>
+
+  <section>
+    <label for="query">SQL query</label>
+    <textarea id="query" name="query" rows="8" [(ngModel)]="query"
+      placeholder="SELECT C.CUSTID, C.NAME FROM CUSTOMER C WHERE C.CUSTID = :ID"></textarea>
+  </section>
+
+  <section>
+    <h2>Libraries / files</h2>
+    @for (t of tables; track $index) {
+      <div class="row">
+        <input [name]="'lib' + $index" placeholder="Library" [(ngModel)]="t.library" />
+        <input [name]="'file' + $index" placeholder="File / table" [(ngModel)]="t.file" />
+        <button type="button" (click)="removeTable($index)" aria-label="Remove">✕</button>
+      </div>
+    }
+    <button type="button" (click)="addTable()">+ Add file</button>
+  </section>
+
+  <section>
+    <h2>Procedure</h2>
+    <div class="row">
+      <input name="plib" placeholder="Procedure library" [(ngModel)]="procedureLibrary" />
+      <input name="pname" placeholder="Procedure name" [(ngModel)]="procedureName" />
+    </div>
+  </section>
+
+  <button type="button" class="primary" [disabled]="loading()" (click)="generate()">
+    {{ loading() ? 'Working…' : 'Generate' }}
+  </button>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  }
+
+  @if (result(); as r) {
+    @for (w of r.warnings; track w) {
+      <p class="warn">{{ w }}</p>
+    }
+
+    <section>
+      <h2>Result columns</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Source</th></tr></thead>
+        <tbody>
+          @for (c of r.columns; track $index) {
+            <tr>
+              <td>{{ c.name }}</td>
+              <td>
+                @if (c.resolved && c.source !== 'user') {
+                  {{ c.type }}
+                } @else {
+                  <input [name]="'ct' + $index" placeholder="e.g. DECIMAL(15,2)"
+                    [ngModel]="columnTypes[c.name] ?? c.type ?? ''"
+                    (ngModelChange)="columnTypes[c.name] = $event" />
+                }
+              </td>
+              <td>{{ c.source }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </section>
+
+    @if (r.parameters.length) {
+      <section>
+        <h2>Parameters</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Source</th></tr></thead>
+          <tbody>
+            @for (p of r.parameters; track $index) {
+              <tr>
+                <td>{{ p.name }}</td>
+                <td>
+                  @if (p.resolved && p.source !== 'user') {
+                    {{ p.type }}
+                  } @else {
+                    <input [name]="'pt' + $index" placeholder="e.g. VARCHAR(30)"
+                      [ngModel]="parameterTypes[p.name] ?? p.type ?? ''"
+                      (ngModelChange)="parameterTypes[p.name] = $event" />
+                  }
+                </td>
+                <td>{{ p.source }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </section>
+    }
+
+    @if (r.complete && r.source) {
+      <section>
+        <h2>Generated source
+          <button type="button" (click)="copy()">{{ copied() ? 'Copied!' : 'Copy' }}</button>
+        </h2>
+        <pre>{{ r.source }}</pre>
+      </section>
+    } @else {
+      <p class="hint">Fill in the missing types above and click Generate again.</p>
+    }
+  }
+</main>

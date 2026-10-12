@@ -1,0 +1,15 @@
+main { max-width: 900px; margin: 1.5rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+section { margin: 1.25rem 0; }
+label, h2 { display: block; font-size: 1.05rem; font-weight: 600; margin-bottom: .4rem; }
+textarea { width: 100%; font-family: Consolas, monospace; box-sizing: border-box; }
+.row { display: flex; gap: .5rem; margin-bottom: .4rem; }
+.row input { flex: 1; }
+input { padding: .35rem; }
+button { padding: .35rem .8rem; cursor: pointer; }
+button.primary { font-size: 1rem; padding: .5rem 1.4rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: .3rem .5rem; text-align: left; }
+pre { background: #1e1e1e; color: #ddd; padding: 1rem; overflow: auto; }
+.error { color: #b00020; }
+.warn { color: #8a5a00; }
+.hint { color: #555; }
