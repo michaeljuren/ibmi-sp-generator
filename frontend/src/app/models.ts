@@ -18,7 +18,10 @@ export interface ParamInfo {
   source: string;
 }
 
+export type RoutineType = 'PROCEDURE' | 'FUNCTION';
+
 export interface GenerateRequest {
+  routineType: RoutineType;
   query: string;
   tables: TableRef[];
   procedureName: string;

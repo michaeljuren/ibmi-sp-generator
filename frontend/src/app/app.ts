@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { GeneratorService } from './generator.service';
-import { GenerateResponse, TableRef } from './models';
+import { GenerateResponse, RoutineType, TableRef } from './models';
 
 @Component({
   imports: [FormsModule],
@@ -13,6 +13,7 @@ import { GenerateResponse, TableRef } from './models';
 export class App {
   private readonly api = inject(GeneratorService);
 
+  routineType: RoutineType = 'PROCEDURE';
   query = '';
   procedureLibrary = '';
   procedureName = '';
@@ -42,6 +43,7 @@ export class App {
     this.copied.set(false);
     this.api
       .generate({
+        routineType: this.routineType,
         query: this.query,
         tables: this.tables.filter((t) => t.library || t.file),
         procedureLibrary: this.procedureLibrary,

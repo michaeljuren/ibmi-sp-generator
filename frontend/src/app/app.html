@@ -1,14 +1,19 @@
 <main>
-  <h1>IBM i Stored Procedure Generator</h1>
+  <h1>IBM i Stored Procedure/UDTF Generator</h1>
   <p class="hint">
     Paste a SELECT query and list the files it uses. Column types are read from
     <code>QSYS2.SYSCOLUMNS</code>; the query is never executed.
   </p>
 
   <section>
+    <h2>Generate</h2>
+    <label><input type="radio" name="routineType" value="PROCEDURE" [(ngModel)]="routineType" /> Stored Procedure</label>
+    <label><input type="radio" name="routineType" value="FUNCTION" [(ngModel)]="routineType" /> User Defined Function (returns table)</label>
+  </section>
+
+  <section>
     <label for="query">SQL query</label>
-    <textarea id="query" name="query" rows="8" [(ngModel)]="query"
-      placeholder="SELECT C.CUSTID, C.NAME FROM CUSTOMER C WHERE C.CUSTID = :ID"></textarea>
+    <textarea id="query" name="query" rows="8" [(ngModel)]="query"></textarea>
   </section>
 
   <section>
@@ -24,10 +29,10 @@
   </section>
 
   <section>
-    <h2>Procedure</h2>
+    <h2>{{ routineType === 'FUNCTION' ? 'Function' : 'Procedure' }}</h2>
     <div class="row">
-      <input name="plib" placeholder="Procedure library" [(ngModel)]="procedureLibrary" />
-      <input name="pname" placeholder="Procedure name" [(ngModel)]="procedureName" />
+      <input name="plib" placeholder="Library" [(ngModel)]="procedureLibrary" />
+      <input name="pname" placeholder="Name" [(ngModel)]="procedureName" />
     </div>
   </section>
 
@@ -44,6 +49,7 @@
       <p class="warn">{{ w }}</p>
     }
 
+    @if (r.columns.length) {
     <section>
       <h2>Result columns</h2>
       <table>
@@ -67,6 +73,7 @@
         </tbody>
       </table>
     </section>
+    }
 
     @if (r.parameters.length) {
       <section>
