@@ -43,8 +43,10 @@ public class GeneratorService {
         GenerateResponse res = new GenerateResponse();
         List<Resolved> tables = resolveTables(req, pq);
 
+        boolean function = isFunction(req);
         int pos = 0;
-        for (SelectColumn sc : pq.columns) {
+        // A stored procedure returns its cursor directly, so output columns need not be looked up.
+        for (SelectColumn sc : function ? pq.columns : List.<SelectColumn>of()) {
             pos++;
             if (sc.wildcard) {
                 for (Resolved t : tables) {
@@ -68,15 +70,27 @@ public class GeneratorService {
         res.complete = res.columns.stream().allMatch(c -> c.resolved)
             && res.parameters.stream().allMatch(p -> p.resolved);
         if (res.complete) {
-            res.source = ProcedureGenerator.generate(req.procedureLibrary, req.procedureName,
-                res.columns, res.parameters, pq.sql);
+            res.source = function
+                ? FunctionGenerator.generate(req.procedureLibrary, req.procedureName,
+                    res.columns, res.parameters, pq.sql)
+                : ProcedureGenerator.generate(req.procedureLibrary, req.procedureName,
+                    res.columns, res.parameters, pq.sql);
         } else {
             res.warnings.add("Some types could not be determined from QSYS2.SYSCOLUMNS; please supply them.");
         }
         return res;
     }
 
+    private static boolean isFunction(GenerateRequest req) {
+        return "FUNCTION".equalsIgnoreCase(req.routineType);
+    }
+
     private void validate(GenerateRequest req) {
+        if (req.routineType != null && !req.routineType.isBlank()
+            && !"FUNCTION".equalsIgnoreCase(req.routineType)
+            && !"PROCEDURE".equalsIgnoreCase(req.routineType)) {
+            throw new IllegalArgumentException("Invalid routine type: " + req.routineType);
+        }
         if (req.query == null || req.query.isBlank()) {
             throw new IllegalArgumentException("A query is required.");
         }

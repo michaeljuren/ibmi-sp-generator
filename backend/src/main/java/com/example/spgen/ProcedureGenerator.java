@@ -12,9 +12,11 @@ public final class ProcedureGenerator {
     public static String generate(String library, String name, List<ColumnInfo> columns,
                                   List<ParamInfo> params, String query) {
         StringBuilder sb = new StringBuilder();
-        sb.append("-- Result set columns:\n");
-        for (ColumnInfo c : columns) {
-            sb.append("--   ").append(c.name).append(" ").append(c.type).append("\n");
+        if (!columns.isEmpty()) {
+            sb.append("-- Result set columns:\n");
+            for (ColumnInfo c : columns) {
+                sb.append("--   ").append(c.name).append(" ").append(c.type).append("\n");
+            }
         }
         sb.append("CREATE OR REPLACE PROCEDURE ").append(library.toUpperCase()).append('.')
             .append(name.toUpperCase());

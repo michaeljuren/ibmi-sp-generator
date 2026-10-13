@@ -15,6 +15,8 @@ public final class Models {
     public static class GenerateRequest {
         public String query;
         public List<TableRef> tables = new ArrayList<>();
+        /** "PROCEDURE" (default) or "FUNCTION" (SQL table function / UDF). */
+        public String routineType;
         public String procedureName;
         public String procedureLibrary;
         /** Output column name (alias / column name / EXPR_n) -> SQL type, for unresolved columns. */

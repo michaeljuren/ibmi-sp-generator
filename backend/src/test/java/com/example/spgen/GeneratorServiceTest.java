@@ -54,37 +54,56 @@ class GeneratorServiceTest {
         return r;
     }
 
+    private GenerateRequest fn(GenerateRequest r) {
+        r.routineType = "FUNCTION";
+        return r;
+    }
+
     @Test
     void resolvesColumnsAliasesAndNamedParams() {
-        GenerateResponse res = service.generate(req(
+        GenerateResponse res = service.generate(fn(req(
             "SELECT c.CUSTID, c.NAME AS CUSTNAME, o.TOTAL FROM MYLIB.CUSTOMER c JOIN ORDERS o ON o.CUSTID = c.CUSTID WHERE c.CUSTID = :ID;",
-            "CUSTOMER", "ORDERS"));
+            "CUSTOMER", "ORDERS")));
         assertTrue(res.complete);
         assertEquals("CUSTNAME", res.columns.get(1).name);
         assertEquals("VARCHAR(40)", res.columns.get(1).type);
         assertEquals("DECIMAL(11,2)", res.columns.get(2).type);
         assertEquals("ID", res.parameters.get(0).name);
         assertEquals("DECIMAL(9,0)", res.parameters.get(0).type);
+        assertTrue(res.source.contains("CREATE OR REPLACE FUNCTION"));
+        assertTrue(res.source.contains("RETURNS TABLE"));
+        assertTrue(res.source.contains("CUSTNAME VARCHAR(40)"));
+        assertTrue(res.source.contains("c.CUSTID = ID"));
+        assertFalse(res.source.contains(":ID"));
+    }
+
+    @Test
+    void procedureSkipsColumnLookup() {
+        GenerateResponse res = service.generate(req(
+            "SELECT SUM(TOTAL) FROM ORDERS WHERE CUSTID = :ID", "ORDERS"));
+        assertTrue(res.complete);
+        assertTrue(res.columns.isEmpty());
+        assertTrue(res.source.contains("CREATE OR REPLACE PROCEDURE"));
         assertTrue(res.source.contains("IN ID DECIMAL(9,0)"));
         assertTrue(res.source.contains("DYNAMIC RESULT SETS 1"));
-        assertFalse(res.source.contains("WHERE c.CUSTID = :ID;;"));
+        assertFalse(res.source.contains("RETURNS TABLE"));
     }
 
     @Test
     void positionalMarkersBecomeNamedParams() {
-        GenerateResponse res = service.generate(req(
-            "SELECT * FROM CUSTOMER WHERE NAME = ? AND CUSTID > ?", "CUSTOMER"));
+        GenerateResponse res =         service.generate(fn(req(
+            "SELECT * FROM CUSTOMER WHERE NAME = ? AND CUSTID > ?", "CUSTOMER")));
         assertTrue(res.complete);
         assertEquals(2, res.columns.size());
         assertEquals("VARCHAR(40)", res.parameters.get(0).type);
         assertEquals("DECIMAL(9,0)", res.parameters.get(1).type);
-        assertTrue(res.source.contains(":P1"));
+        assertTrue(res.source.contains("NAME = P1"));
         assertFalse(res.source.contains("?"));
     }
 
     @Test
     void expressionsNeedUserTypes() {
-        GenerateRequest r = req("SELECT SUM(TOTAL) FROM ORDERS", "ORDERS");
+        GenerateRequest r = fn(req("SELECT SUM(TOTAL) FROM ORDERS", "ORDERS"));
         GenerateResponse res = service.generate(r);
         assertFalse(res.complete);
         assertEquals("EXPR_1", res.columns.get(0).name);
