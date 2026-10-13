@@ -50,7 +50,7 @@ public class GeneratorService {
                 for (Resolved t : tables) {
                     if (sc.qualifier == null || matches(t.q, sc.qualifier)) {
                         for (ColumnMeta m : t.cols) {
-                            res.columns.add(fromMeta(m.name, t, m));
+                            res.columns.add(fromMeta(m.systemName, t, m));
                         }
                     }
                 }
@@ -145,7 +145,7 @@ public class GeneratorService {
         c.type = TypeMapper.toSqlType(m);
         c.resolved = true;
         c.nullable = m.nullable;
-        c.source = t.ref.library.toUpperCase() + "/" + t.ref.file.toUpperCase() + "." + m.name;
+        c.source = t.ref.library.toUpperCase() + "/" + t.ref.file.toUpperCase() + "." + m.systemName;
         return c;
     }
 
@@ -158,7 +158,7 @@ public class GeneratorService {
                 continue;
             }
             for (ColumnMeta m : t.cols) {
-                if (m.name.equalsIgnoreCase(column)) {
+                if (m.systemName.equalsIgnoreCase(column)) {
                     hits.add(t);
                     metas.add(m);
                 }
@@ -231,7 +231,7 @@ public class GeneratorService {
                 info.type = TypeMapper.toSqlType(m[0]);
                 info.resolved = true;
                 info.source = holder[0].ref.library.toUpperCase() + "/" + holder[0].ref.file.toUpperCase()
-                    + "." + m[0].name;
+                    + "." + m[0].systemName;
                 return info;
             }
         }

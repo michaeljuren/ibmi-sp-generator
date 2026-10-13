@@ -20,7 +20,7 @@ class GeneratorServiceTest {
 
     private static ColumnMeta col(String n, String t, Integer len, Integer scale) {
         ColumnMeta m = new ColumnMeta();
-        m.name = n;
+        m.systemName = n;
         m.dataType = t;
         m.length = len;
         m.scale = scale;

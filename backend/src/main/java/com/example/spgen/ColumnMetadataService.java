@@ -12,7 +12,7 @@ import com.example.spgen.Models.ColumnMeta;
 public class ColumnMetadataService implements ColumnMetadataProvider {
 
     private static final String SQL =
-        "SELECT COLUMN_NAME, DATA_TYPE, LENGTH, NUMERIC_SCALE, CCSID, IS_NULLABLE "
+        "SELECT SYSTEM_COLUMN_NAME, DATA_TYPE, LENGTH, NUMERIC_SCALE, CCSID, IS_NULLABLE "
         + "FROM QSYS2.SYSCOLUMNS "
         + "WHERE (TABLE_SCHEMA = ? OR SYSTEM_TABLE_SCHEMA = ?) "
         + "AND (TABLE_NAME = ? OR SYSTEM_TABLE_NAME = ?) "
@@ -35,7 +35,7 @@ public class ColumnMetadataService implements ColumnMetadataProvider {
             ps.setString(4, f);
         }, (rs, i) -> {
             ColumnMeta m = new ColumnMeta();
-            m.name = rs.getString("COLUMN_NAME");
+            m.systemName = rs.getString("SYSTEM_COLUMN_NAME");
             m.dataType = rs.getString("DATA_TYPE");
             m.length = (Integer) rs.getObject("LENGTH");
             m.scale = (Integer) rs.getObject("NUMERIC_SCALE");

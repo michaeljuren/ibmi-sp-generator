@@ -49,7 +49,7 @@ public final class Models {
 
     /** Column metadata as read from QSYS2.SYSCOLUMNS. */
     public static class ColumnMeta {
-        public String name;
+        public String systemName;
         public String dataType;
         public Integer length;
         public Integer scale;
