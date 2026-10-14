@@ -10,6 +10,9 @@ import org.springframework.stereotype.Service;
 
 import com.example.spgen.Models.ColumnInfo;
 import com.example.spgen.Models.ColumnMeta;
+import com.example.spgen.Models.ExpectedField;
+import com.example.spgen.Models.FieldCheck;
+import com.example.spgen.Models.FieldMatch;
 import com.example.spgen.Models.GenerateRequest;
 import com.example.spgen.Models.GenerateResponse;
 import com.example.spgen.Models.ParamInfo;
@@ -68,6 +71,8 @@ public class GeneratorService {
             res.parameters.add(resolveParam(p, tables, req));
         }
 
+        checkFields(req, res);
+
         res.complete = res.columns.stream().allMatch(c -> c.resolved)
             && res.parameters.stream().allMatch(p -> p.resolved);
         if (res.complete) {
@@ -80,6 +85,56 @@ public class GeneratorService {
             res.warnings.add("Some types could not be determined from QSYS2.SYSCOLUMNS; please supply them.");
         }
         return res;
+    }
+
+    private void checkFields(GenerateRequest req, GenerateResponse res) {
+        if (req.expectedFields == null || req.expectedFields.isEmpty()) {
+            return;
+        }
+        Map<TableRef, List<ColumnMeta>> cache = new java.util.LinkedHashMap<>();
+        for (TableRef t : req.tables) {
+            List<ColumnMeta> cols = metadata.getColumns(t.library, t.file);
+            if (cols.isEmpty()) {
+                res.warnings.add("No columns found in QSYS2.SYSCOLUMNS for "
+                    + t.library.toUpperCase() + "/" + t.file.toUpperCase() + ".");
+            }
+            cache.put(t, cols);
+        }
+        int bad = 0;
+        for (ExpectedField ef : req.expectedFields) {
+            FieldCheck fc = new FieldCheck();
+            fc.field = ef.field.trim().toUpperCase();
+            fc.library = blankToNull(ef.library);
+            fc.file = blankToNull(ef.file);
+            for (Map.Entry<TableRef, List<ColumnMeta>> e : cache.entrySet()) {
+                TableRef t = e.getKey();
+                if ((fc.library != null && !fc.library.equalsIgnoreCase(t.library))
+                    || (fc.file != null && !fc.file.equalsIgnoreCase(t.file))) {
+                    continue;
+                }
+                for (ColumnMeta m : e.getValue()) {
+                    if (m.systemName.equalsIgnoreCase(fc.field)) {
+                        FieldMatch fm = new FieldMatch();
+                        fm.library = t.library.toUpperCase();
+                        fm.file = t.file.toUpperCase();
+                        fm.systemColumnName = m.systemName;
+                        fc.matches.add(fm);
+                    }
+                }
+            }
+            fc.status = fc.matches.isEmpty() ? "NOT_FOUND" : fc.matches.size() == 1 ? "FOUND" : "AMBIGUOUS";
+            if (!"FOUND".equals(fc.status)) {
+                bad++;
+            }
+            res.fieldChecks.add(fc);
+        }
+        if (bad > 0) {
+            res.warnings.add(bad + " expected field(s) were not found or are ambiguous.");
+        }
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private static boolean isFunction(GenerateRequest req) {
@@ -104,6 +159,28 @@ public class GeneratorService {
         }
         requireIdent(req.procedureLibrary, "procedure library");
         requireIdent(req.procedureName, "procedure name");
+        if (req.expectedFields != null) {
+            for (ExpectedField ef : req.expectedFields) {
+                requireIdent(ef.field == null ? null : ef.field.trim(), "expected field");
+                String lib = blankToNull(ef.library);
+                String file = blankToNull(ef.file);
+                if (lib != null) {
+                    requireIdent(lib, "expected field library");
+                }
+                if (file != null) {
+                    requireIdent(file, "expected field file");
+                }
+                if (lib != null || file != null) {
+                    boolean listed = req.tables.stream().anyMatch(t ->
+                        (lib == null || lib.equalsIgnoreCase(t.library))
+                        && (file == null || file.equalsIgnoreCase(t.file)));
+                    if (!listed) {
+                        throw new IllegalArgumentException("Expected field " + ef.field
+                            + " refers to a library/file that is not in the selected list.");
+                    }
+                }
+            }
+        }
         for (Map<String, String> m : new Map[] {req.columnTypes, req.parameterTypes}) {
             if (m != null) {
                 for (String type : m.values()) {
@@ -146,7 +223,6 @@ public class GeneratorService {
                     + ref.library + "/" + ref.file + ".");
             }
             out.add(r);
-            System.out.println(out.toString());
         }
         return out;
     }

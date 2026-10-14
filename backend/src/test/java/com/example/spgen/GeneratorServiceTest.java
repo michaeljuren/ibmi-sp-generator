@@ -115,6 +115,38 @@ class GeneratorServiceTest {
     }
 
     @Test
+    void checksExpectedFields() {
+        GenerateRequest r = req("SELECT * FROM CUSTOMER", "CUSTOMER", "ORDERS");
+        r.expectedFields.add(ef("name", null));
+        r.expectedFields.add(ef("CUSTID", null));
+        r.expectedFields.add(ef("CUSTID", "ORDERS"));
+        r.expectedFields.add(ef("NOPE", null));
+        GenerateResponse res = service.generate(r);
+        assertEquals("FOUND", res.fieldChecks.get(0).status);
+        assertEquals("CUSTOMER", res.fieldChecks.get(0).matches.get(0).file);
+        assertEquals("AMBIGUOUS", res.fieldChecks.get(1).status);
+        assertEquals(2, res.fieldChecks.get(1).matches.size());
+        assertEquals("FOUND", res.fieldChecks.get(2).status);
+        assertEquals("ORDERS", res.fieldChecks.get(2).matches.get(0).file);
+        assertEquals("NOT_FOUND", res.fieldChecks.get(3).status);
+        assertTrue(res.warnings.stream().anyMatch(w -> w.contains("2 expected field")));
+    }
+
+    @Test
+    void rejectsExpectedFieldOutsideSelection() {
+        GenerateRequest r = req("SELECT * FROM CUSTOMER", "CUSTOMER");
+        r.expectedFields.add(ef("NAME", "ORDERS"));
+        assertThrows(IllegalArgumentException.class, () -> service.generate(r));
+    }
+
+    private static Models.ExpectedField ef(String field, String file) {
+        Models.ExpectedField e = new Models.ExpectedField();
+        e.field = field;
+        e.file = file;
+        return e;
+    }
+
+    @Test
     void rejectsBadInput() {
         assertThrows(IllegalArgumentException.class,
             () -> service.generate(req("DELETE FROM CUSTOMER", "CUSTOMER")));

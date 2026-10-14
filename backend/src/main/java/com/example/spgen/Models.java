@@ -23,6 +23,30 @@ public final class Models {
         public Map<String, String> columnTypes;
         /** Parameter name -> SQL type, for unresolved parameters. */
         public Map<String, String> parameterTypes;
+        /** Expected return fields (SYSTEM_COLUMN_NAME) to check against the selected files. */
+        public List<ExpectedField> expectedFields = new ArrayList<>();
+    }
+
+    public static class ExpectedField {
+        public String field;
+        /** Optional scope: restrict the match to this library/file. */
+        public String library;
+        public String file;
+    }
+
+    public static class FieldMatch {
+        public String library;
+        public String file;
+        public String systemColumnName;
+    }
+
+    public static class FieldCheck {
+        public String field;
+        public String library;
+        public String file;
+        /** FOUND, NOT_FOUND or AMBIGUOUS. */
+        public String status;
+        public List<FieldMatch> matches = new ArrayList<>();
     }
 
     public static class ColumnInfo {
@@ -47,6 +71,7 @@ public final class Models {
         public List<ColumnInfo> columns = new ArrayList<>();
         public List<ParamInfo> parameters = new ArrayList<>();
         public List<String> warnings = new ArrayList<>();
+        public List<FieldCheck> fieldChecks = new ArrayList<>();
     }
 
     /** Column metadata as read from QSYS2.SYSCOLUMNS. */
