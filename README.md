@@ -1,13 +1,16 @@
 # IBM i Stored Procedure Generator
 
-Paste a SELECT query, list the libraries/files it uses, and get `CREATE OR REPLACE PROCEDURE` source
-(SQL PL, `DYNAMIC RESULT SETS 1`, `WITH RETURN TO CLIENT` cursor). The query is **never executed**:
-column types come from `QSYS2.SYSCOLUMNS` only.
+Paste a query and get either `CREATE OR REPLACE PROCEDURE` source (SQL PL, `DYNAMIC RESULT SETS 1`,
+`WITH RETURN TO CLIENT` cursor) or a `CREATE OR REPLACE FUNCTION` table function (User Defined Function).
+The query is **never executed**: Db2 only *prepares* it, and the result-column and parameter types are read
+from the prepared statement's metadata.
 
-- Plain/aliased columns and `*` / `T.*` are resolved from `SYSCOLUMNS`.
-- Expressions (e.g. `SUM(x)`) and parameters whose type can't be inferred are flagged; enter the type in the UI.
-- Host variables (`:name`) and `?` markers become `IN` parameters (`?` is rewritten to `:P1`, `:P2`, ...), typed from the column they are compared with.
-- Limitations: a single plain SELECT only (no UNION/WITH/subselects in FROM); SQL naming (`.`) only.
+- Any single `SELECT`, `WITH` (CTE) or `VALUES` statement is accepted: joins, `UNION`, subselects, expressions, etc.
+- Result columns (used for the function's `RETURNS TABLE`) come from Db2; unaliased expressions are named `EXPR_n`. Procedures don't need them.
+- Host variables (`:name`) and `?` markers become `IN` parameters (`?` is rewritten to `:P1`, `:P2`, ...), typed by Db2. A repeated `:name` takes the type of its first use.
+- Types Db2 can't determine (e.g. `SELECT ?`, `? IS NULL`) are flagged; enter the type in the UI.
+- Only one statement is allowed; `DML`/`DDL` and anything after a `;` are rejected. A query Db2 rejects returns its error message.
+- Unqualified table names resolve through the connection's library list (`*LIBL`); qualify them as `LIB.FILE` to be explicit. SQL naming (`.`) only.
 
 ## Run
 
