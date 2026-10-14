@@ -1,4 +1,4 @@
-# IBM i Stored Procedure Generator
+# IBMi Stored Procedure/User Defined Function Generator
 
 Paste a query and get either `CREATE OR REPLACE PROCEDURE` source (SQL PL, `DYNAMIC RESULT SETS 1`,
 `WITH RETURN TO CLIENT` cursor) or a `CREATE OR REPLACE FUNCTION` table function (User Defined Function).
