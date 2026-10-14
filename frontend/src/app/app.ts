@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { GeneratorService } from './generator.service';
-import { ExpectedField, GenerateResponse, RoutineType, TableRef } from './models';
+import { GenerateResponse, RoutineType } from './models';
 
 @Component({
   imports: [FormsModule],
@@ -17,8 +17,6 @@ export class App {
   query = '';
   procedureLibrary = '';
   procedureName = '';
-  tables: TableRef[] = [{ library: '', file: '' }];
-  expectedFields: ExpectedField[] = [{ field: '', library: '', file: '' }];
   columnTypes: Record<string, string> = {};
   parameterTypes: Record<string, string> = {};
 
@@ -26,43 +24,6 @@ export class App {
   readonly error = signal<string | null>(null);
   readonly loading = signal(false);
   readonly copied = signal(false);
-
-  addTable(): void {
-    this.tables.push({ library: '', file: '' });
-  }
-
-  removeTable(i: number): void {
-    this.tables.splice(i, 1);
-    if (this.tables.length === 0) {
-      this.addTable();
-    }
-  }
-
-  addField(): void {
-    this.expectedFields.push({ field: '', library: '', file: '' });
-  }
-
-  removeField(i: number): void {
-    this.expectedFields.splice(i, 1);
-    if (this.expectedFields.length === 0) {
-      this.addField();
-    }
-  }
-
-  /** Scope choices come from the filled-in Libraries / files rows. */
-  scopeOptions(): TableRef[] {
-    return this.tables.filter((t) => t.library.trim() && t.file.trim());
-  }
-
-  scopeValue(f: ExpectedField): string {
-    return f.library && f.file ? f.library + '/' + f.file : '';
-  }
-
-  setScope(f: ExpectedField, value: string): void {
-    const [library = '', file = ''] = value ? value.split('/') : [];
-    f.library = library;
-    f.file = file;
-  }
 
   generate(): void {
     this.loading.set(true);
@@ -72,9 +33,6 @@ export class App {
       .generate({
         routineType: this.routineType,
         query: this.query,
-        tables: this.tables.filter((t) => t.library || t.file),
-        expectedFields:
-          this.routineType === 'FUNCTION' ? this.expectedFields.filter((f) => f.field.trim()) : [],
         procedureLibrary: this.procedureLibrary,
         procedureName: this.procedureName,
         columnTypes: this.clean(this.columnTypes),
