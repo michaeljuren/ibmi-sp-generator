@@ -28,6 +28,26 @@
     <button type="button" (click)="addTable()">+ Add file</button>
   </section>
 
+  @if (routineType === 'FUNCTION') {
+  <section>
+    <h2>Expected return fields</h2>
+    <p class="hint">Enter SYSTEM_COLUMN_NAME values. Optionally pick the file a field belongs to.</p>
+    @for (f of expectedFields; track $index) {
+      <div class="row">
+        <input [name]="'ef' + $index" placeholder="SYSTEM_COLUMN_NAME" [(ngModel)]="f.field" />
+        <select [name]="'efs' + $index" [ngModel]="scopeValue(f)" (ngModelChange)="setScope(f, $event)">
+          <option value="">Any selected file</option>
+          @for (t of scopeOptions(); track $index) {
+            <option [value]="t.library + '/' + t.file">{{ t.library }}/{{ t.file }}</option>
+          }
+        </select>
+        <button type="button" (click)="removeField($index)" aria-label="Remove">✕</button>
+      </div>
+    }
+    <button type="button" (click)="addField()">+ Add field</button>
+  </section>
+  }
+
   <section>
     <h2>{{ routineType === 'FUNCTION' ? 'Function' : 'Procedure' }}</h2>
     <div class="row">
@@ -47,6 +67,36 @@
   @if (result(); as r) {
     @for (w of r.warnings; track w) {
       <p class="warn">{{ w }}</p>
+    }
+
+    @if (r.fieldChecks.length) {
+      <section>
+        <h2>Expected fields</h2>
+        <table>
+          <thead><tr><th>Field</th><th>Status</th><th>Library</th><th>File</th><th>SYSTEM_COLUMN_NAME</th></tr></thead>
+          <tbody>
+            @for (c of r.fieldChecks; track $index) {
+              @if (c.matches.length) {
+                @for (m of c.matches; track $index) {
+                  <tr>
+                    <td>{{ c.field }}</td>
+                    <td><span [class]="'badge ' + c.status">{{ c.status.replace('_', ' ') }}</span></td>
+                    <td>{{ m.library }}</td>
+                    <td>{{ m.file }}</td>
+                    <td>{{ m.systemColumnName }}</td>
+                  </tr>
+                }
+              } @else {
+                <tr>
+                  <td>{{ c.field }}</td>
+                  <td><span [class]="'badge ' + c.status">NOT FOUND</span></td>
+                  <td colspan="3">{{ c.library && c.file ? 'Not in ' + c.library + '/' + c.file : 'Not in any selected file' }}</td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </section>
     }
 
     @if (r.columns.length) {

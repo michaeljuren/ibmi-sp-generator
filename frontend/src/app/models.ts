@@ -20,10 +20,31 @@ export interface ParamInfo {
 
 export type RoutineType = 'PROCEDURE' | 'FUNCTION';
 
+export interface ExpectedField {
+  field: string;
+  library: string;
+  file: string;
+}
+
+export interface FieldMatch {
+  library: string;
+  file: string;
+  systemColumnName: string;
+}
+
+export interface FieldCheck {
+  field: string;
+  library: string | null;
+  file: string | null;
+  status: 'FOUND' | 'NOT_FOUND' | 'AMBIGUOUS';
+  matches: FieldMatch[];
+}
+
 export interface GenerateRequest {
   routineType: RoutineType;
   query: string;
   tables: TableRef[];
+  expectedFields: ExpectedField[];
   procedureName: string;
   procedureLibrary: string;
   columnTypes: Record<string, string>;
@@ -36,4 +57,5 @@ export interface GenerateResponse {
   columns: ColumnInfo[];
   parameters: ParamInfo[];
   warnings: string[];
+  fieldChecks: FieldCheck[];
 }
