@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
@@ -145,6 +146,7 @@ public class GeneratorService {
                     + ref.library + "/" + ref.file + ".");
             }
             out.add(r);
+            System.out.println(out.toString());
         }
         return out;
     }
