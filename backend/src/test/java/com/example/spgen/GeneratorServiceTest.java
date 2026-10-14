@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -14,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import com.example.spgen.Models.ColumnMeta;
 import com.example.spgen.Models.GenerateRequest;
 import com.example.spgen.Models.GenerateResponse;
-import com.example.spgen.Models.TableRef;
+import com.example.spgen.QueryDescriber.Description;
 
 class GeneratorServiceTest {
 
@@ -27,28 +25,17 @@ class GeneratorServiceTest {
         return m;
     }
 
-    private final GeneratorService service = new GeneratorService((lib, file) -> {
-        List<ColumnMeta> l = new ArrayList<>();
-        if (file.equalsIgnoreCase("CUSTOMER")) {
-            l.add(col("CUSTID", "DECIMAL", 9, 0));
-            l.add(col("NAME", "VARCHAR", 40, null));
-        } else if (file.equalsIgnoreCase("ORDERS")) {
-            l.add(col("ORDID", "INTEGER", 4, 0));
-            l.add(col("CUSTID", "DECIMAL", 9, 0));
-            l.add(col("TOTAL", "DECIMAL", 11, 2));
-        }
-        return l;
+    private Description described = new Description();
+    private String preparedSql;
+
+    private final GeneratorService service = new GeneratorService((sql, count) -> {
+        preparedSql = sql;
+        return described;
     });
 
-    private GenerateRequest req(String query, String... files) {
+    private GenerateRequest req(String query) {
         GenerateRequest r = new GenerateRequest();
         r.query = query;
-        for (String f : files) {
-            TableRef t = new TableRef();
-            t.library = "MYLIB";
-            t.file = f;
-            r.tables.add(t);
-        }
         r.procedureLibrary = "MYLIB";
         r.procedureName = "GETCUST";
         return r;
@@ -60,99 +47,84 @@ class GeneratorServiceTest {
     }
 
     @Test
-    void resolvesColumnsAliasesAndNamedParams() {
+    void functionColumnsAndParamsComeFromDb2() {
+        described.columns.add(col("CUSTID", "DECIMAL", 9, 0));
+        described.columns.add(col("CUSTNAME", "VARCHAR", 40, null));
+        described.columns.add(col(null, "DECIMAL", 11, 2));
+        described.params.add(col(null, "DECIMAL", 9, 0));
         GenerateResponse res = service.generate(fn(req(
-            "SELECT c.CUSTID, c.NAME AS CUSTNAME, o.TOTAL FROM MYLIB.CUSTOMER c JOIN ORDERS o ON o.CUSTID = c.CUSTID WHERE c.CUSTID = :ID;",
-            "CUSTOMER", "ORDERS")));
+            "WITH T AS (SELECT * FROM CUSTOMER) SELECT CUSTID, NAME AS CUSTNAME, 1.5 FROM T WHERE CUSTID = :ID;")));
         assertTrue(res.complete);
-        assertEquals("CUSTNAME", res.columns.get(1).name);
         assertEquals("VARCHAR(40)", res.columns.get(1).type);
+        assertEquals("EXPR_3", res.columns.get(2).name);
         assertEquals("DECIMAL(11,2)", res.columns.get(2).type);
-        assertEquals("ID", res.parameters.get(0).name);
         assertEquals("DECIMAL(9,0)", res.parameters.get(0).type);
-        assertTrue(res.source.contains("CREATE OR REPLACE FUNCTION"));
+        assertTrue(preparedSql.contains("CUSTID = ?"));
         assertTrue(res.source.contains("RETURNS TABLE"));
-        assertTrue(res.source.contains("CUSTNAME VARCHAR(40)"));
-        assertTrue(res.source.contains("c.CUSTID = ID"));
+        assertTrue(res.source.contains("CUSTID = ID"));
         assertFalse(res.source.contains(":ID"));
     }
 
     @Test
-    void procedureSkipsColumnLookup() {
+    void procedureIgnoresColumnsButTypesParams() {
+        described.columns.add(col("X", "DECIMAL", 15, 2));
+        described.params.add(col(null, "DECIMAL", 9, 0));
         GenerateResponse res = service.generate(req(
-            "SELECT SUM(TOTAL) FROM ORDERS WHERE CUSTID = :ID", "ORDERS"));
+            "SELECT SUM(TOTAL) FROM ORDERS UNION ALL SELECT 1 FROM ORDERS WHERE CUSTID = :ID"));
         assertTrue(res.complete);
         assertTrue(res.columns.isEmpty());
         assertTrue(res.source.contains("CREATE OR REPLACE PROCEDURE"));
         assertTrue(res.source.contains("IN ID DECIMAL(9,0)"));
-        assertTrue(res.source.contains("DYNAMIC RESULT SETS 1"));
         assertFalse(res.source.contains("RETURNS TABLE"));
     }
 
     @Test
     void positionalMarkersBecomeNamedParams() {
-        GenerateResponse res =         service.generate(fn(req(
-            "SELECT * FROM CUSTOMER WHERE NAME = ? AND CUSTID > ?", "CUSTOMER")));
+        described.params.add(col(null, "VARCHAR", 40, null));
+        described.params.add(col(null, "DECIMAL", 9, 0));
+        GenerateResponse res = service.generate(req(
+            "SELECT * FROM CUSTOMER WHERE NAME = ? AND CUSTID > ?"));
         assertTrue(res.complete);
-        assertEquals(2, res.columns.size());
         assertEquals("VARCHAR(40)", res.parameters.get(0).type);
         assertEquals("DECIMAL(9,0)", res.parameters.get(1).type);
-        assertTrue(res.source.contains("NAME = P1"));
-        assertFalse(res.source.contains("?"));
+        assertTrue(res.source.contains("NAME = :P1"));
+        assertEquals("SELECT * FROM CUSTOMER WHERE NAME = ? AND CUSTID > ?", preparedSql);
     }
 
     @Test
-    void expressionsNeedUserTypes() {
-        GenerateRequest r = fn(req("SELECT SUM(TOTAL) FROM ORDERS", "ORDERS"));
+    void repeatedNamedParamUsesFirstOccurrence() {
+        described.params.add(col(null, "INTEGER", 4, 0));
+        described.params.add(col(null, "VARCHAR", 10, null));
+        described.params.add(col(null, "INTEGER", 4, 0));
+        GenerateResponse res = service.generate(req(
+            "SELECT 1 FROM ORDERS WHERE ORDID = :A AND CUSTID = :B OR ORDID = :A"));
+        assertEquals(2, res.parameters.size());
+        assertEquals("INTEGER", res.parameters.get(0).type);
+    }
+
+    @Test
+    void undescribedTypesNeedUserTypes() {
+        described.columns.add(col(null, null, null, null));
+        described.params.add(col(null, null, null, null));
+        GenerateRequest r = fn(req("SELECT ? FROM ORDERS"));
         GenerateResponse res = service.generate(r);
         assertFalse(res.complete);
         assertEquals("EXPR_1", res.columns.get(0).name);
 
         r.columnTypes = Map.of("EXPR_1", "DECIMAL(15,2)");
+        r.parameterTypes = Map.of("P1", "INTEGER");
         res = service.generate(r);
         assertTrue(res.complete);
         assertTrue(res.source.contains("EXPR_1 DECIMAL(15,2)"));
     }
 
     @Test
-    void checksExpectedFields() {
-        GenerateRequest r = req("SELECT * FROM CUSTOMER", "CUSTOMER", "ORDERS");
-        r.expectedFields.add(ef("name", null));
-        r.expectedFields.add(ef("CUSTID", null));
-        r.expectedFields.add(ef("CUSTID", "ORDERS"));
-        r.expectedFields.add(ef("NOPE", null));
-        GenerateResponse res = service.generate(r);
-        assertEquals("FOUND", res.fieldChecks.get(0).status);
-        assertEquals("CUSTOMER", res.fieldChecks.get(0).matches.get(0).file);
-        assertEquals("AMBIGUOUS", res.fieldChecks.get(1).status);
-        assertEquals(2, res.fieldChecks.get(1).matches.size());
-        assertEquals("FOUND", res.fieldChecks.get(2).status);
-        assertEquals("ORDERS", res.fieldChecks.get(2).matches.get(0).file);
-        assertEquals("NOT_FOUND", res.fieldChecks.get(3).status);
-        assertTrue(res.warnings.stream().anyMatch(w -> w.contains("2 expected field")));
-    }
-
-    @Test
-    void rejectsExpectedFieldOutsideSelection() {
-        GenerateRequest r = req("SELECT * FROM CUSTOMER", "CUSTOMER");
-        r.expectedFields.add(ef("NAME", "ORDERS"));
-        assertThrows(IllegalArgumentException.class, () -> service.generate(r));
-    }
-
-    private static Models.ExpectedField ef(String field, String file) {
-        Models.ExpectedField e = new Models.ExpectedField();
-        e.field = field;
-        e.file = file;
-        return e;
-    }
-
-    @Test
     void rejectsBadInput() {
         assertThrows(IllegalArgumentException.class,
-            () -> service.generate(req("DELETE FROM CUSTOMER", "CUSTOMER")));
+            () -> service.generate(req("DELETE FROM CUSTOMER")));
         assertThrows(IllegalArgumentException.class,
-            () -> service.generate(req("SELECT * FROM OTHER", "CUSTOMER")));
-        GenerateRequest r = req("SELECT * FROM CUSTOMER", "CUSTOMER");
+            () -> service.generate(req("SELECT 1 FROM CUSTOMER; DROP TABLE CUSTOMER")));
+        GenerateRequest r = req("SELECT * FROM CUSTOMER");
         r.procedureName = "X; DROP";
         assertThrows(IllegalArgumentException.class, () -> service.generate(r));
     }

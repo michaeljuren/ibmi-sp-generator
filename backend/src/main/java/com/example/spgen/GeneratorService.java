@@ -1,77 +1,55 @@
 package com.example.spgen;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import com.example.spgen.Models.ColumnInfo;
 import com.example.spgen.Models.ColumnMeta;
-import com.example.spgen.Models.ExpectedField;
-import com.example.spgen.Models.FieldCheck;
-import com.example.spgen.Models.FieldMatch;
 import com.example.spgen.Models.GenerateRequest;
 import com.example.spgen.Models.GenerateResponse;
 import com.example.spgen.Models.ParamInfo;
-import com.example.spgen.Models.TableRef;
-import com.example.spgen.QueryParser.ParamUse;
+import com.example.spgen.QueryDescriber.Description;
 import com.example.spgen.QueryParser.ParsedQuery;
-import com.example.spgen.QueryParser.QueryTable;
-import com.example.spgen.QueryParser.SelectColumn;
 
 @Service
 public class GeneratorService {
 
     private static final Pattern IDENT = Pattern.compile("^[A-Za-z][A-Za-z0-9_$#@]{0,127}$");
     private static final Pattern TYPE = Pattern.compile("^[A-Za-z ]+(\\(\\d+(\\s*,\\s*\\d+)?\\))?$");
+    private static final String DB_SOURCE = "Db2 (prepared, not executed)";
 
-    private static class Resolved {
-        QueryTable q;
-        TableRef ref;
-        List<ColumnMeta> cols;
-    }
-
-    private final ColumnMetadataProvider metadata;
+    private final QueryDescriber describer;
     private final QueryParser parser = new QueryParser();
 
-    public GeneratorService(ColumnMetadataProvider metadata) {
-        this.metadata = metadata;
+    public GeneratorService(QueryDescriber describer) {
+        this.describer = describer;
     }
 
     public GenerateResponse generate(GenerateRequest req) {
         validate(req);
         ParsedQuery pq = parser.parse(req.query);
         GenerateResponse res = new GenerateResponse();
-        List<Resolved> tables = resolveTables(req, pq);
-
         boolean function = isFunction(req);
-        int pos = 0;
-        // A stored procedure returns its cursor directly, so output columns need not be looked up.
-        for (SelectColumn sc : function ? pq.columns : List.<SelectColumn>of()) {
-            pos++;
-            if (sc.wildcard) {
-                for (Resolved t : tables) {
-                    if (sc.qualifier == null || matches(t.q, sc.qualifier)) {
-                        for (ColumnMeta m : t.cols) {
-                            res.columns.add(fromMeta(m.systemName, t, m));
-                        }
-                    }
-                }
-            } else if (sc.columnName != null) {
-                res.columns.add(resolveColumn(sc, tables, res, req));
-            } else {
-                res.columns.add(expressionColumn(sc, pos, req));
+
+        Description d = describer.describe(pq.jdbcSql, pq.markers.size());
+
+        // A stored procedure returns its cursor directly, so output columns are only needed for functions.
+        if (function) {
+            int pos = 0;
+            for (ColumnMeta m : d.columns) {
+                pos++;
+                String name = m.systemName != null ? m.systemName : "EXPR_" + pos;
+                res.columns.add(column(name, m, req));
             }
         }
 
-        for (ParamUse p : pq.params.values()) {
-            res.parameters.add(resolveParam(p, tables, req));
+        for (String name : pq.paramNames) {
+            ColumnMeta m = d.params.size() > pq.markers.indexOf(name)
+                ? d.params.get(pq.markers.indexOf(name)) : null;
+            res.parameters.add(param(name, m, req));
         }
-
-        checkFields(req, res);
 
         res.complete = res.columns.stream().allMatch(c -> c.resolved)
             && res.parameters.stream().allMatch(p -> p.resolved);
@@ -82,59 +60,47 @@ public class GeneratorService {
                 : ProcedureGenerator.generate(req.procedureLibrary, req.procedureName,
                     res.columns, res.parameters, pq.sql);
         } else {
-            res.warnings.add("Some types could not be determined from QSYS2.SYSCOLUMNS; please supply them.");
+            res.warnings.add("Some types could not be determined by Db2; please supply them.");
         }
         return res;
     }
 
-    private void checkFields(GenerateRequest req, GenerateResponse res) {
-        if (req.expectedFields == null || req.expectedFields.isEmpty()) {
-            return;
+    private ColumnInfo column(String name, ColumnMeta m, GenerateRequest req) {
+        ColumnInfo c = new ColumnInfo();
+        c.name = name;
+        String override = override(req.columnTypes, name);
+        if (override != null) {
+            c.type = override.trim().toUpperCase();
+            c.resolved = true;
+            c.nullable = true;
+            c.source = "user";
+        } else if (m.dataType != null) {
+            c.type = TypeMapper.toSqlType(m);
+            c.resolved = true;
+            c.nullable = m.nullable;
+            c.source = DB_SOURCE;
+        } else {
+            c.source = "Type could not be determined";
         }
-        Map<TableRef, List<ColumnMeta>> cache = new java.util.LinkedHashMap<>();
-        for (TableRef t : req.tables) {
-            List<ColumnMeta> cols = metadata.getColumns(t.library, t.file);
-            if (cols.isEmpty()) {
-                res.warnings.add("No columns found in QSYS2.SYSCOLUMNS for "
-                    + t.library.toUpperCase() + "/" + t.file.toUpperCase() + ".");
-            }
-            cache.put(t, cols);
-        }
-        int bad = 0;
-        for (ExpectedField ef : req.expectedFields) {
-            FieldCheck fc = new FieldCheck();
-            fc.field = ef.field.trim().toUpperCase();
-            fc.library = blankToNull(ef.library);
-            fc.file = blankToNull(ef.file);
-            for (Map.Entry<TableRef, List<ColumnMeta>> e : cache.entrySet()) {
-                TableRef t = e.getKey();
-                if ((fc.library != null && !fc.library.equalsIgnoreCase(t.library))
-                    || (fc.file != null && !fc.file.equalsIgnoreCase(t.file))) {
-                    continue;
-                }
-                for (ColumnMeta m : e.getValue()) {
-                    if (m.systemName.equalsIgnoreCase(fc.field)) {
-                        FieldMatch fm = new FieldMatch();
-                        fm.library = t.library.toUpperCase();
-                        fm.file = t.file.toUpperCase();
-                        fm.systemColumnName = m.systemName;
-                        fc.matches.add(fm);
-                    }
-                }
-            }
-            fc.status = fc.matches.isEmpty() ? "NOT_FOUND" : fc.matches.size() == 1 ? "FOUND" : "AMBIGUOUS";
-            if (!"FOUND".equals(fc.status)) {
-                bad++;
-            }
-            res.fieldChecks.add(fc);
-        }
-        if (bad > 0) {
-            res.warnings.add(bad + " expected field(s) were not found or are ambiguous.");
-        }
+        return c;
     }
 
-    private static String blankToNull(String s) {
-        return s == null || s.isBlank() ? null : s.trim();
+    private ParamInfo param(String name, ColumnMeta m, GenerateRequest req) {
+        ParamInfo p = new ParamInfo();
+        p.name = name;
+        String override = override(req.parameterTypes, name);
+        if (override != null) {
+            p.type = override.trim().toUpperCase();
+            p.resolved = true;
+            p.source = "user";
+        } else if (m != null && m.dataType != null) {
+            p.type = TypeMapper.toSqlType(m);
+            p.resolved = true;
+            p.source = DB_SOURCE;
+        } else {
+            p.source = "Type could not be inferred";
+        }
+        return p;
     }
 
     private static boolean isFunction(GenerateRequest req) {
@@ -150,37 +116,8 @@ public class GeneratorService {
         if (req.query == null || req.query.isBlank()) {
             throw new IllegalArgumentException("A query is required.");
         }
-        if (req.tables == null || req.tables.isEmpty()) {
-            throw new IllegalArgumentException("At least one library/file is required.");
-        }
-        for (TableRef t : req.tables) {
-            requireIdent(t.library, "library");
-            requireIdent(t.file, "file");
-        }
         requireIdent(req.procedureLibrary, "procedure library");
         requireIdent(req.procedureName, "procedure name");
-        if (req.expectedFields != null) {
-            for (ExpectedField ef : req.expectedFields) {
-                requireIdent(ef.field == null ? null : ef.field.trim(), "expected field");
-                String lib = blankToNull(ef.library);
-                String file = blankToNull(ef.file);
-                if (lib != null) {
-                    requireIdent(lib, "expected field library");
-                }
-                if (file != null) {
-                    requireIdent(file, "expected field file");
-                }
-                if (lib != null || file != null) {
-                    boolean listed = req.tables.stream().anyMatch(t ->
-                        (lib == null || lib.equalsIgnoreCase(t.library))
-                        && (file == null || file.equalsIgnoreCase(t.file)));
-                    if (!listed) {
-                        throw new IllegalArgumentException("Expected field " + ef.field
-                            + " refers to a library/file that is not in the selected list.");
-                    }
-                }
-            }
-        }
         for (Map<String, String> m : new Map[] {req.columnTypes, req.parameterTypes}) {
             if (m != null) {
                 for (String type : m.values()) {
@@ -196,139 +133,6 @@ public class GeneratorService {
         if (v == null || !IDENT.matcher(v).matches()) {
             throw new IllegalArgumentException("Invalid " + what + ": " + v);
         }
-    }
-
-    private List<Resolved> resolveTables(GenerateRequest req, ParsedQuery pq) {
-        List<Resolved> out = new ArrayList<>();
-        for (QueryTable q : pq.tables) {
-            TableRef ref = null;
-            for (TableRef t : req.tables) {
-                boolean nameOk = t.file.equalsIgnoreCase(q.name);
-                boolean libOk = q.schema == null || t.library.equalsIgnoreCase(q.schema);
-                if (nameOk && libOk) {
-                    ref = t;
-                    break;
-                }
-            }
-            if (ref == null) {
-                throw new IllegalArgumentException("Table " + (q.schema != null ? q.schema + "." : "")
-                    + q.name + " is used in the query but not listed in the library/file list.");
-            }
-            Resolved r = new Resolved();
-            r.q = q;
-            r.ref = ref;
-            r.cols = metadata.getColumns(ref.library, ref.file);
-            if (r.cols.isEmpty()) {
-                throw new IllegalArgumentException("No columns found in QSYS2.SYSCOLUMNS for "
-                    + ref.library + "/" + ref.file + ".");
-            }
-            out.add(r);
-        }
-        return out;
-    }
-
-    private static boolean matches(QueryTable q, String qualifier) {
-        return qualifier.equalsIgnoreCase(q.alias) || (q.alias == null && qualifier.equalsIgnoreCase(q.name));
-    }
-
-    private ColumnInfo fromMeta(String name, Resolved t, ColumnMeta m) {
-        ColumnInfo c = new ColumnInfo();
-        c.name = name;
-        c.type = TypeMapper.toSqlType(m);
-        c.resolved = true;
-        c.nullable = m.nullable;
-        c.source = t.ref.library.toUpperCase() + "/" + t.ref.file.toUpperCase() + "." + m.systemName;
-        return c;
-    }
-
-    private ColumnMeta[] find(String qualifier, String column, List<Resolved> tables, Resolved[] holder,
-                              List<String> warnings) {
-        List<Resolved> hits = new ArrayList<>();
-        List<ColumnMeta> metas = new ArrayList<>();
-        for (Resolved t : tables) {
-            if (qualifier != null && !matches(t.q, qualifier)) {
-                continue;
-            }
-            for (ColumnMeta m : t.cols) {
-                if (m.systemName.equalsIgnoreCase(column)) {
-                    hits.add(t);
-                    metas.add(m);
-                }
-            }
-        }
-        if (hits.isEmpty()) {
-            return null;
-        }
-        if (hits.size() > 1) {
-            warnings.add("Column " + column + " is ambiguous; using "
-                + hits.get(0).ref.library + "/" + hits.get(0).ref.file + ".");
-        }
-        holder[0] = hits.get(0);
-        return new ColumnMeta[] {metas.get(0)};
-    }
-
-    private ColumnInfo resolveColumn(SelectColumn sc, List<Resolved> tables, GenerateResponse res,
-                                     GenerateRequest req) {
-        Resolved[] holder = new Resolved[1];
-        ColumnMeta[] m = find(sc.qualifier, sc.columnName, tables, holder, res.warnings);
-        String override = override(req.columnTypes, sc.name);
-        if (override != null) {
-            return userColumn(sc.name, override);
-        }
-        if (m == null) {
-            ColumnInfo c = new ColumnInfo();
-            c.name = sc.name;
-            c.source = "Column " + sc.columnName + " not found in the listed files";
-            return c;
-        }
-        return fromMeta(sc.name, holder[0], m[0]);
-    }
-
-    private ColumnInfo expressionColumn(SelectColumn sc, int pos, GenerateRequest req) {
-        String name = sc.name != null ? sc.name : "EXPR_" + pos;
-        String override = override(req.columnTypes, name);
-        if (override != null) {
-            return userColumn(name, override);
-        }
-        ColumnInfo c = new ColumnInfo();
-        c.name = name;
-        c.source = sc.expression;
-        return c;
-    }
-
-    private ColumnInfo userColumn(String name, String type) {
-        ColumnInfo c = new ColumnInfo();
-        c.name = name;
-        c.type = type.trim().toUpperCase();
-        c.resolved = true;
-        c.nullable = true;
-        c.source = "user";
-        return c;
-    }
-
-    private ParamInfo resolveParam(ParamUse p, List<Resolved> tables, GenerateRequest req) {
-        ParamInfo info = new ParamInfo();
-        info.name = p.name;
-        String override = override(req.parameterTypes, p.name);
-        if (override != null) {
-            info.type = override.trim().toUpperCase();
-            info.resolved = true;
-            info.source = "user";
-            return info;
-        }
-        if (p.columnName != null) {
-            Resolved[] holder = new Resolved[1];
-            ColumnMeta[] m = find(p.qualifier, p.columnName, tables, holder, new ArrayList<>());
-            if (m != null) {
-                info.type = TypeMapper.toSqlType(m[0]);
-                info.resolved = true;
-                info.source = holder[0].ref.library.toUpperCase() + "/" + holder[0].ref.file.toUpperCase()
-                    + "." + m[0].systemName;
-                return info;
-            }
-        }
-        info.source = "Type could not be inferred";
-        return info;
     }
 
     private static String override(Map<String, String> map, String name) {
